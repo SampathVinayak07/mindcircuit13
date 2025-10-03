@@ -1,0 +1,69 @@
+pipeline {
+    agent any
+    tools {
+        maven 'maven3'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                git branch: 'main',
+                    url: 'https://github.com/SampathVinayak07/mindcircuit13',
+                    credentialsId: 'githubtoken'
+            }
+        }
+
+        stage('SonarQube Scan') {
+            steps {
+                sh 'ls -ltr'
+                sh '''
+                    mvn sonar:sonar \
+                    -Dsonar.host.url=http://54.90.102.222:9000 \
+                    -Dsonar.login=squ_9ba28c775910eccb7fcb887eec31f382d02da57c
+                '''
+            }
+        }
+
+        stage('Build Artifact') {
+            steps {
+                sh 'mvn clean package'
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                sh 'docker build -t sampath07/batch13:${BUILD_NUMBER} .'
+            }
+        }
+
+        stage('Push to Docker Hub') {
+            steps {
+                script {
+                    withCredentials([string(credentialsId: 'dockerhub', variable: 'dockerhub')]) {
+                        sh 'docker login -u sampath07 -p ${dockerhub}'
+                    }
+                    sh 'docker push sampath07/batch13:${BUILD_NUMBER}'
+                }
+            }
+        }
+
+        stage('Update Deployment File') {
+            environment {
+                GIT_REPO_NAME = "mindcircuit13"
+                GIT_USER_NAME = "SampathVinayak07"
+            }
+            steps {
+                withCredentials([string(credentialsId: 'githubtoken', variable: 'githubtoken')]) {
+                    sh '''
+                        git config user.email "gurramsampathvinayak@gmail.com"
+                        git config user.name "Sampath"
+                        sed -i "s/batch13:.*/batch13:${BUILD_NUMBER}/g" deploymentfiles/deployment.yml
+                        git add .
+                        git commit -m "Update deployment image to version ${BUILD_NUMBER}"
+                        git push https://${githubtoken}@github.com/${GIT_USER_NAME}/${GIT_REPO_NAME} HEAD:main
+                    '''
+                }
+            }
+        }
+    }
+}
